@@ -1,0 +1,13 @@
+{
+  "national": [
+    "Agence de Développement Économique et Social"
+  ],
+  "not_national": [],
+  "recategorise": {
+    "SWISSAID": "ingo"
+  },
+  "iati_alias": {
+    "ONG SAHEL KALLATCHOU SAHKAL": "ONG Sahkal",
+    "EDUCATION DEVELOPMENT ORGANIZATION IN CHAD": "Education development organization in Chad"
+  }
+}

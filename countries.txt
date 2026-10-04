@@ -1,0 +1,9 @@
+# ISO3|Name as FTS writes it
+TCD|Chad
+NGA|Nigeria
+CAF|Central African Republic
+SDN|Sudan
+SSD|South Sudan
+COL|Colombia
+YEM|Yemen
+AFG|Afghanistan

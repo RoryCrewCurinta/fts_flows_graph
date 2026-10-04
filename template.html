@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aid flows map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@87.5..112.5,400..700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF3F4; --surface:#F7FAFA; --ink:#10262E; --muted:#56696F; --line:#CBD8DB; --edge:#10262E;
+  --gov:#2B6CB0; --multi:#6B4FC4; --private:#71838A; --fund:#C98A00; --un:#0F8F82; --ingo:#CF4770; --rc:#8A5A3C; --nngo:#2E9E48; --hostgov:#7D8F1F;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1B21; --surface:#12242B; --ink:#E6EEF0; --muted:#93A8AF; --line:#273B43; --edge:#E6EEF0;
+    --gov:#5B9BE0; --multi:#9A86EA; --private:#9DB0B7; --fund:#F0B429; --un:#35C2B3; --ingo:#EE7396; --rc:#C79270; --nngo:#5BD176; --hostgov:#B5C640;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1B21; --surface:#12242B; --ink:#E6EEF0; --muted:#93A8AF; --line:#273B43; --edge:#E6EEF0;
+  --gov:#5B9BE0; --multi:#9A86EA; --private:#9DB0B7; --fund:#F0B429; --un:#35C2B3; --ingo:#EE7396; --rc:#C79270; --nngo:#5BD176; --hostgov:#B5C640;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%; scroll-padding-top:env(safe-area-inset-top,0px)}
+body{height:100%; margin:0; background:var(--bg); color:var(--ink);
+  font-family:Archivo,"Helvetica Neue",Arial,system-ui,sans-serif; font-size:14px; line-height:1.45; font-variant-numeric:tabular-nums}
+button,input{font:inherit; color:inherit}
+.app{height:100%; display:grid; grid-template-rows:auto 1fr; min-height:0}
+
+.bar{display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; padding:12px 18px; border-bottom:1px solid var(--line)}
+.bar h1{font-size:19px; font-weight:700; font-stretch:112%; letter-spacing:-.01em; margin:0 6px 0 0; white-space:nowrap}
+.seg{display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:2px; background:var(--surface)}
+.seg button{border:0; background:none; padding:5px 12px; border-radius:999px; cursor:pointer; color:var(--muted); font-weight:500; white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--ink); color:var(--bg)}
+.ctl{display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12.5px}
+.search{margin-left:auto}
+.search input{border:1px solid var(--line); background:var(--surface); border-radius:999px; padding:6px 13px; width:210px}
+:focus-visible{outline:2px solid var(--fund); outline-offset:2px}
+
+.main{display:grid; grid-template-columns:minmax(0,1fr) 350px; min-height:0}
+.stage{position:relative; min-height:0; overflow:hidden}
+svg{display:block; width:100%; height:100%; cursor:grab; touch-action:none}
+svg:active{cursor:grabbing}
+.axis{position:absolute; left:18px; right:18px; bottom:10px; display:flex; justify-content:space-between; color:var(--muted); font-size:12px; pointer-events:none}
+.axis span:nth-child(2){text-align:center}
+.zoom{position:absolute; top:12px; left:14px; display:flex; flex-direction:column; gap:4px}
+.zoom button{width:30px; height:30px; border:1px solid var(--line); background:var(--surface); border-radius:8px; cursor:pointer; font-size:16px; line-height:1}
+
+.edge{fill:none; stroke-linecap:round; opacity:.26}
+.edge.sub{stroke-dasharray:2 4; opacity:.5}
+.flow{fill:none; stroke:var(--bg); stroke-linecap:round; stroke-dasharray:1 13; opacity:.9; animation:run 1.1s linear infinite}
+@keyframes run{from{stroke-dashoffset:14}to{stroke-dashoffset:0}}
+@media (prefers-reduced-motion:reduce){.flow{animation:none}}
+.node circle{stroke:var(--bg); stroke-width:1.5; cursor:pointer}
+.node.sub circle{fill-opacity:.32; stroke-width:1.5; stroke-dasharray:3 3}
+.node text{font-size:11px; font-weight:600; fill:var(--ink); paint-order:stroke; stroke:var(--bg); stroke-width:3.5px; stroke-linejoin:round; pointer-events:none}
+.dim .edge{opacity:.035}
+.dim .edge.hot{opacity:.75}
+.dim .node{opacity:.13}
+.dim .node.hot{opacity:1}
+.node.sel circle{stroke:var(--ink); stroke-width:2.5; stroke-dasharray:none}
+
+.tip{position:absolute; pointer-events:none; background:var(--ink); color:var(--bg); padding:6px 10px; border-radius:6px; font-size:12.5px; max-width:260px; transform:translate(-50%,-135%); display:none; z-index:3}
+.tip b{display:block; font-weight:600}
+
+.panel{border-left:1px solid var(--line); overflow-y:auto; padding:18px 20px 28px; min-height:0}
+.panel h2{font-size:22px; line-height:1.15; font-weight:700; font-stretch:106%; letter-spacing:-.01em; margin:0 0 4px}
+.kind{display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:12.5px; margin-bottom:14px}
+.dot{width:10px; height:10px; border-radius:50%; flex:none; display:inline-block}
+.lede{color:var(--muted); margin:0 0 16px; max-width:38ch}
+.figs{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:0 0 18px; padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+.figs div b{display:block; font-size:19px; font-weight:700; font-stretch:95%}
+.figs div span{color:var(--muted); font-size:12px}
+h3{font-size:13px; font-weight:600; margin:18px 0 6px; color:var(--muted)}
+.rows{list-style:none; margin:0; padding:0}
+.rows button{display:grid; grid-template-columns:10px 1fr auto; gap:9px; align-items:center; width:100%; text-align:left; background:none; border:0; border-bottom:1px solid var(--line); padding:7px 0; cursor:pointer}
+.rows button:hover .nm{text-decoration:underline}
+.rows .amt{font-weight:600}
+.rows .nm small{color:var(--muted); font-weight:400}
+.follow{list-style:none; margin:0 0 6px; padding:0}
+.follow button{display:block; width:100%; text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer}
+.follow button:hover{border-color:var(--ink)}
+.follow b{display:block; font-weight:600}
+.follow span{color:var(--muted); font-size:12.5px}
+.secbar{display:grid; grid-template-columns:1fr auto; gap:2px 10px; margin-bottom:7px; font-size:12.5px}
+.secbar i{grid-column:1/3; height:4px; border-radius:2px; background:var(--ink); opacity:.55}
+.legend{display:grid; grid-template-columns:1fr 1fr; gap:5px 12px; font-size:12.5px; margin:4px 0 0}
+.legend div{display:flex; align-items:center; gap:7px}
+.ring{width:10px; height:10px; border-radius:50%; border:1.5px dashed var(--muted); flex:none}
+.note{color:var(--muted); font-size:12.5px; margin:14px 0 0; max-width:42ch}
+.back{background:none; border:0; padding:0; margin:0 0 12px; color:var(--muted); cursor:pointer; text-decoration:underline; text-underline-offset:3px}
+
+@media (max-width:860px){
+  body{height:auto}
+  .app{height:auto; display:block}
+  .main{display:block}
+  .stage{height:72vh; min-height:440px}
+  .panel{border-left:0; border-top:1px solid var(--line); overflow:visible}
+  .search{margin-left:0; width:100%}
+  .search input{width:100%}
+  .bar h1{width:auto}
+}
+
+#country{font-weight:600}
+select{font:inherit; color:inherit; border:1px solid var(--line); background:var(--surface); border-radius:999px; padding:6px 12px; max-width:210px}
+.edge.iati{stroke-dasharray:7 3}
+.hit{fill:none; stroke:transparent; cursor:pointer; pointer-events:stroke}
+.node.iati circle{fill-opacity:.3; stroke-width:1.5}
+.dim .edge.warm{opacity:.17}
+.dim .node.warm{opacity:.5}
+.pair{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; margin:0 0 12px}
+.pair button{background:none; border:0; padding:0; cursor:pointer; font-size:20px; font-weight:700; font-stretch:106%; text-align:left; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:4px}
+.pair button:hover{text-decoration-color:var(--ink)}
+.pair span{color:var(--muted); font-size:13px}
+.flows{list-style:none; margin:0; padding:0}
+.flows li{border-bottom:1px solid var(--line); padding:9px 0}
+.flows .top{display:flex; justify-content:space-between; gap:10px}
+.flows .top span{color:var(--muted)}
+.flows .ds{margin:2px 0 4px; overflow-wrap:anywhere}
+.flows .tags{display:flex; flex-wrap:wrap; gap:4px 6px; font-size:12px; color:var(--muted)}
+.flows .tags i{font-style:normal; border:1px solid var(--line); border-radius:4px; padding:0 5px}
+.flows .tags i.cash{border-color:var(--nngo); color:var(--ink)}
+.solid{width:10px; height:10px; border-radius:50%; border:1.5px solid var(--muted); flex:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <h1>Aid flows</h1>
+    <select id="country" aria-label="Country"></select>
+    <div class="seg" id="year" role="group" aria-label="Year"></div>
+    <div class="seg" id="mode" role="group" aria-label="Funding type"></div>
+    <select id="sector" aria-label="Sector"></select>
+    <div class="ctl"><span>Size by</span><div class="seg" id="metric" role="group" aria-label="Size bubbles by"></div></div>
+    <div class="search"><input id="q" list="orgs" placeholder="Find an organisation" aria-label="Find an organisation"><datalist id="orgs"></datalist></div>
+  </header>
+  <div class="main">
+    <div class="stage" id="stage">
+      <svg id="svg" role="img" aria-label="Network of funding flows between organisations"><g id="vp"><g id="edges"></g><g id="flows"></g><g id="hits"></g><g id="nodes"></g></g></svg>
+      <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit to screen">⤢</button></div>
+      <div class="axis" id="axis"><span>Donors</span><span>Pass money on</span><span>Keep what they receive</span></div>
+      <div class="tip" id="tip"></div>
+    </div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+const ALL = __DATA__, PULLED = "__PULLED__";
+let DATA, COUNTRY, YEARS, CATS;
+const state = {iso:"__FIRST__", year:null, mode:"all", metric:"vol", sector:"", sel:null};
+function setCountry(iso){
+  state.iso=iso; DATA=ALL[iso].years; COUNTRY=ALL[iso].country; YEARS=Object.keys(DATA).sort();
+  if(!YEARS.includes(state.year)) state.year=YEARS[YEARS.length-1];
+  CATS = {gov:"Donor government", multi:"Multilateral donor", private:"Private donor or other", fund:"Pooled fund", un:"UN agency", ingo:"International NGO", rc:"Red Cross / Red Crescent", nngo:"National or local NGO", hostgov:"Government of "+COUNTRY};
+  state.sel=null;
+}
+setCountry(state.iso);
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = v => { const a=Math.abs(v); const s = a>=1e9 ? (a/1e9).toFixed(2)+"B" : a>=1e8 ? Math.round(a/1e6)+"M" : a>=1e6 ? (a/1e6).toFixed(1)+"M" : a>=1e3 ? Math.round(a/1e3)+"K" : Math.round(a); return (v<0?"−":"")+"$"+s; };
+const pct = v => (v*100 < 1 && v>0 ? "<1" : Math.round(v*100)) + "%";
+const day = s => s ? new Date(s+"T00:00:00Z").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"}) : "No date";
+const plain = () => state.mode==="all" && !state.sector;
+
+function seg(id, opts, key){
+  const el=$(id);
+  el.innerHTML = opts.map(([v,l]) => `<button data-v="${v}" aria-pressed="${state[key]===v}">${l}</button>`).join("");
+  el.onclick = e => { const b=e.target.closest("button"); if(!b) return; state[key]=b.dataset.v; seg(id,opts,key); if(key==="year") sectors(); build(key!=="metric"); };
+}
+function sectors(){
+  const d=DATA[state.year], tot=d.sectors.map(()=>0);
+  d.flows.forEach(f => f.k.forEach(k => tot[k]+=f.a/f.k.length));
+  if(!d.sectors.includes(state.sector)) state.sector="";
+  $("sector").innerHTML = `<option value="">All sectors</option>` + d.sectors.map((s,i)=>[s,tot[i]]).sort((a,b)=>b[1]-a[1]).map(([s]) => `<option${s===state.sector?" selected":""}>${esc(s)}</option>`).join("");
+}
+$("sector").onchange = e => { state.sector=e.target.value; build(true); };
+
+let V = null;
+const svg = d3.select("#svg"), vp = d3.select("#vp");
+const zoom = d3.zoom().scaleExtent([0.3, 8]).on("zoom", e => vp.attr("transform", e.transform));
+svg.call(zoom).on("dblclick.zoom", null);
+svg.on("click", e => { if(e.target.id==="svg") select(null); });
+
+function model(){
+  const d = DATA[state.year], mode=state.mode, si = state.sector ? d.sectors.indexOf(state.sector) : -1;
+  const N = new Map(d.nodes.map(n => [n.id, {...n, in:0, out:0, inN:0, outN:0, ins:[], outs:[], sec:new Map()}]));
+  const E = new Map();
+  const edge = (s,t,extra) => { const k=s+">"+t; if(!E.has(k)){ const e={key:k, s:N.get(s), t:N.get(t), v:0, n:0, flows:[], ...extra}; E.set(k,e); e.s.outs.push(e); e.t.ins.push(e); } return E.get(k); };
+  for(const f of d.flows){
+    if(mode==="cash" && !f.c) continue;
+    if(mode==="est" && !f.x) continue;
+    if(si>=0 && !f.k.includes(si)) continue;
+    const v = (mode==="est" ? f.x : f.a) / (si>=0 ? f.k.length : 1);
+    const e = edge(f.s, f.t); e.v+=v; e.n++; e.flows.push({f, v});
+    e.s.out+=v; e.s.outN++; e.t.in+=v; e.t.inN++;
+    f.k.forEach(k => e.t.sec.set(k, (e.t.sec.get(k)||0) + f.a/f.k.length));
+  }
+  if(plain()){
+    for(const x of d.dash) edge(x.s, x.t, {d:true});
+    for(const x of d.iati){ const e=edge(x.s, x.t, {i:true}); e.v+=x.a; e.n+=x.n; e.s.out+=x.a; e.s.outN+=x.n; e.t.in+=x.a; e.t.inN+=x.n; }
+  }
+  const nodes = [...N.values()].filter(n => n.ins.length || n.outs.length), edges=[...E.values()];
+  for(const n of nodes){
+    if(n.sub) n.in = n.v;
+    n.vol = Math.max(n.in, n.out); n.cnt = n.inN + n.outN; n.avg = n.cnt ? (n.in+n.out)/n.cnt : 0;
+    n.edge = n.sub || (n.iati && !n.outs.length);
+    n.t = n.edge ? 1.22 : n.in===0 ? 0 : 1 - 0.6*Math.min(1, n.out/n.in);
+  }
+  for(const e of edges) e.avg = e.n ? e.v/e.n : 0;
+  return {nodes, edges, byId:N, byKey:E, meta:d.meta, d};
+}
+
+function build(relayout=true){
+  const prev = V;
+  V = model();
+  if(state.sel && !(V.byKey.has(state.sel) || V.nodes.find(n => n.id===state.sel))) state.sel=null;
+  $("orgs").innerHTML = V.nodes.filter(n=>!n.sub).sort((a,b)=>b.vol-a.vol).map(n => `<option value="${esc(n.name)}">`).join("");
+  const st = $("stage").getBoundingClientRect(), W = st.width, H = st.height, portrait = W < 620;
+  V.portrait = portrait;
+  const key = state.metric, rmax = portrait ? 30 : 44;
+  const r = d3.scaleSqrt().domain([0, d3.max(V.nodes, n => n[key]) || 1]).range([3.5, rmax]);
+  const ek = {vol:"v", cnt:"n", avg:"avg"}[state.metric];
+  const w = d3.scaleSqrt().domain([0, d3.max(V.edges, e => e[ek]) || 1]).range([0.7, portrait ? 12 : 18]);
+  V.nodes.forEach(n => n.r = n.sub && state.metric!=="vol" ? 6 : Math.max(n.sub ? 6 : 0, r(n[key])));
+  V.edges.forEach(e => e.w = e.d ? 1 : w(e[ek]));
+  if(relayout || !prev){
+    const L = portrait ? H : W, pad = 70, span = (L - 2*pad) / 1.22;
+    V.nodes.forEach((n,i) => {
+      const main = pad + n.t*span, jit = ((i*9301+49297)%233280)/233280 - .5;
+      n.x = portrait ? W/2 + jit*W*.7 : main; n.y = portrait ? main : H/2 + jit*H*.8; n.m = main;
+    });
+    const sim = d3.forceSimulation(V.nodes)
+      .force("main", (portrait ? d3.forceY(n=>n.m) : d3.forceX(n=>n.m)).strength(.55))
+      .force("cross", (portrait ? d3.forceX(W/2) : d3.forceY(H/2)).strength(.045))
+      .force("link", d3.forceLink(V.edges.filter(e=>!e.d).map(e=>({source:e.s, target:e.t}))).strength(.012))
+      .force("collide", d3.forceCollide(n => n.r + (n.sub ? 13 : n.edge ? 7 : n.t===0 && !portrait ? 4.5 : n.r>=11 ? 9 : 3)).iterations(4)).stop();
+    for(let i=0;i<340;i++) sim.tick();
+  } else {
+    const old = new Map(prev.nodes.map(n=>[n.id,n]));
+    V.nodes.forEach(n => { const o=old.get(n.id); n.x=o.x; n.y=o.y; });
+  }
+  draw();
+  if(relayout || !prev) fit(false);
+  select(state.sel, true);
+}
+
+function path(e){
+  const a=e.s, b=e.t;
+  if(V.portrait){ const m=(a.y+b.y)/2; return `M${a.x},${a.y}C${a.x},${m} ${b.x},${m} ${b.x},${b.y}`; }
+  const m=(a.x+b.x)/2; return `M${a.x},${a.y}C${m},${a.y} ${m},${b.y} ${b.x},${b.y}`;
+}
+function draw(){
+  const es = [...V.edges].sort((a,b)=>b.w-a.w);
+  d3.select("#edges").selectAll("path").data(es).join("path")
+    .attr("class", e => "edge"+(e.d?" sub":"")+(e.i?" iati":"")).attr("d", path)
+    .attr("stroke", e => `var(--${e.s.cat})`).attr("stroke-width", e => e.w);
+  d3.select("#hits").selectAll("path").data(es.filter(e=>!e.d)).join("path").attr("class","hit").attr("d", path).attr("stroke-width", e => Math.max(9, e.w))
+    .on("click", (ev,e) => { ev.stopPropagation(); select(e.key); })
+    .on("pointermove", (ev,e) => tip(`<b>${esc(e.s.label)} to ${esc(e.t.label)}</b>${money(e.v)}${e.i ? ", reported in IATI" : ", "+e.n+" flow"+(e.n>1?"s":"")}`, ev))
+    .on("pointerleave", () => $("tip").style.display="none");
+  d3.select("#flows").selectAll("path").remove();
+  const ns = [...V.nodes].sort((a,b)=>b.r-a.r);
+  const g = d3.select("#nodes").selectAll("g").data(ns, n=>n.id).join("g")
+    .attr("class", n => "node"+(n.sub?" sub":"")+(n.iati?" iati":"")).attr("transform", n => `translate(${n.x},${n.y})`)
+    .on("click", (e,n) => { e.stopPropagation(); select(n.id); })
+    .on("pointermove", (e,n) => tip(`<b>${esc(n.sub ? n.label.split(",")[0]+", sub-grants" : n.name)}</b>` + (n.sub ? `${money(n.v)} in sub-grants` : n.in && n.out ? `${money(n.in)} in, ${money(n.out)} out` : n.in ? `${money(n.in)} received` : `${money(n.out)} given`), e))
+    .on("pointerleave", () => $("tip").style.display="none");
+  g.selectAll("*").remove();
+  g.append("circle").attr("r", n=>n.r).attr("fill", n=>`var(--${n.cat})`).attr("stroke", n => (n.sub||n.iati) ? `var(--${n.cat})` : null);
+  const side = n => V.portrait ? 0 : n.edge ? 1 : n.t===0 ? -1 : 0;
+  g.append("text").text(n => n.label)
+    .attr("text-anchor", n => ["end","middle","start"][side(n)+1])
+    .attr("x", n => side(n)*(n.r+5)).attr("y", n => side(n) ? 4 : n.r+12);
+  labels();
+  $("axis").style.display = V.portrait ? "none" : "flex";
+}
+function labels(hot){
+  d3.select("#nodes").selectAll("text").attr("display", n => (n.r>=11 || (n.sub && !V.portrait) || (hot && hot.size<=45 && hot.has(n.id))) ? null : "none");
+}
+function tip(html, e){
+  if(e.pointerType==="touch") return;
+  const t=$("tip"), st=$("stage").getBoundingClientRect();
+  t.innerHTML = html; t.style.display="block"; t.style.left=(e.clientX-st.left)+"px"; t.style.top=(e.clientY-st.top)+"px";
+}
+function fit(animate=true){
+  const st=$("stage").getBoundingClientRect();
+  const px = V.portrait ? 30 : 0, x0=d3.min(V.nodes,n=>n.x-n.r-(n.t===0?105:20)-px), x1=d3.max(V.nodes,n=>n.x+n.r+(n.edge?175:20)+px), y0=d3.min(V.nodes,n=>n.y-n.r-14), y1=d3.max(V.nodes,n=>n.y+n.r+34);
+  const k=Math.min(st.width/(x1-x0), (st.height-(V.portrait?0:26))/(y1-y0), 1.6);
+  const tr=d3.zoomIdentity.translate((st.width-k*(x0+x1))/2, (st.height-(V.portrait?0:26)-k*(y0+y1))/2).scale(k);
+  (animate ? svg.transition().duration(350) : svg).call(zoom.transform, tr);
+}
+$("zin").onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 1.4);
+$("zout").onclick = () => svg.transition().duration(200).call(zoom.scaleBy, 1/1.4);
+$("zfit").onclick = () => fit();
+
+function reach(id){
+  const n0=V.byId.get(id), direct=new Set([...n0.ins, ...n0.outs]), near=new Set([id]), far=new Set(), warm=new Set();
+  direct.forEach(e => { near.add(e.s.id); near.add(e.t.id); });
+  const walk=(dir)=>{ const q=[id], seen=new Set([id]);
+    while(q.length){ const n=V.byId.get(q.pop());
+      for(const e of (dir>0 ? n.outs : n.ins)){ if(!direct.has(e)) warm.add(e); const o=(dir>0?e.t:e.s).id; if(!near.has(o)) far.add(o); if(!seen.has(o)){ seen.add(o); q.push(o); } } } };
+  walk(1); walk(-1);
+  return {direct, warm, near, far};
+}
+function select(key, quiet){
+  state.sel = key;
+  const root = d3.select("#vp"); d3.select("#flows").selectAll("path").remove();
+  d3.selectAll(".node").classed("hot warm sel", false); d3.selectAll(".edge").classed("hot warm", false);
+  if(!key){ root.classed("dim", false); labels(); panelHome(); return; }
+  root.classed("dim", true);
+  let hotE, lab;
+  if(V.byKey.has(key)){
+    const e=V.byKey.get(key); hotE=new Set([e]); lab=new Set([e.s.id, e.t.id]);
+    d3.selectAll(".node").classed("hot", n=>lab.has(n.id));
+    d3.selectAll(".edge").classed("hot", x=>x===e);
+    panelEdge(e);
+  } else {
+    const R=reach(key); hotE=R.direct; lab=new Set([...R.near, ...R.far]);
+    d3.selectAll(".node").classed("hot", n=>R.near.has(n.id)).classed("warm", n=>R.far.has(n.id)).classed("sel", n=>n.id===key);
+    d3.selectAll(".edge").classed("hot", e=>R.direct.has(e)).classed("warm", e=>R.warm.has(e));
+    panelNode(V.byId.get(key));
+  }
+  d3.select("#flows").selectAll("path").data([...hotE].filter(e=>!e.d && e.w>=1.6)).join("path")
+    .attr("class","flow").attr("d", path).attr("stroke-width", e=>Math.max(1.4, Math.min(4, e.w*.35)));
+  labels(lab);
+  if(!quiet && !window.matchMedia("(max-width:860px)").matches) $("panel").scrollTop=0;
+}
+
+const dot = n => n.sub ? `<span class="ring"></span>` : n.iati ? `<span class="solid" style="border-color:var(--${n.cat})"></span>` : `<span class="dot" style="background:var(--${n.cat})"></span>`;
+function rowList(title, edges, side){
+  const real = edges.filter(e=>!e.d).sort((a,b)=>b.v-a.v), dashed = edges.filter(e=>e.d);
+  let h = "";
+  if(real.length){
+    h += `<h3>${title} (${real.length})</h3><ul class="rows">` + real.map(e => { const o=e[side];
+      return `<li><button data-key="${esc(e.key)}">${dot(o)}<span class="nm">${esc(o.label)} <small>${e.i ? "IATI" : e.n+" flow"+(e.n>1?"s":"")}</small></span><span class="amt">${money(e.v)}</span></button></li>`; }).join("") + `</ul>`;
+  }
+  if(dashed.length && side==="t"){
+    h += `<h3>Sub-grants it may have made</h3><ul class="rows">` + dashed.map(e => { const o=e.t;
+      return `<li><button data-id="${o.id}"><span class="ring"></span><span class="nm">${esc(o.label.split(",")[0])} <small>shared across ${o.from} partners</small></span><span class="amt">${money(o.v)}</span></button></li>`; }).join("") + `</ul>`;
+  }
+  return h;
+}
+const back = `<button class="back" data-id="">Show the whole network</button>`;
+function panelEdge(e){
+  const d=V.d; let h = back + `<div class="pair"><button data-id="${e.s.id}">${esc(e.s.label)}</button><span>to</span><button data-id="${e.t.id}">${esc(e.t.label)}</button></div>`;
+  if(e.i){
+    h += `<div class="figs" style="grid-template-columns:1fr 1fr"><div><b>${money(e.v)}</b><span>Spent with this partner, ${state.year}</span></div><div><b>${e.n}</b><span>Transaction${e.n>1?"s":""}</span></div></div>
+      <p class="lede">This link comes from what ${esc(e.s.label)} publishes to IATI, not from FTS. It is spending by ${esc(e.s.label)}, and can include development money as well as humanitarian.</p>`;
+  } else {
+    const fl=[...e.flows].sort((a,b)=>(b.f.d||"").localeCompare(a.f.d||"")), dates=fl.map(x=>x.f.d).filter(Boolean).sort();
+    h += `<div class="figs"><div><b>${money(e.v)}</b><span>${state.mode==="est" ? "Estimated cash" : state.mode==="cash" ? "Tagged cash" : "Total"}${state.sector ? ", "+esc(state.sector) : ""}</span></div><div><b>${e.n}</b><span>Flow${e.n>1?"s":""}</span></div><div><b>${dates.length ? dates[0].slice(0,4)+(dates[0].slice(0,4)!==dates[dates.length-1].slice(0,4) ? "–"+dates[dates.length-1].slice(2,4) : "") : "n/a"}</b><span>Flow dates</span></div></div>
+      <h3>Individual flows, newest first</h3><ul class="flows">` + fl.slice(0,120).map(({f,v}) => {
+        const tags=[...f.k.map(k=>`<i>${esc(d.sectors[k])}</i>`)];
+        if(f.p!=null){ const p=d.projects[f.p]; tags.push(`<i title="${esc(p.name)}">Project ${esc(p.code||p.id)}</i>`); }
+        if(f.c) tags.push(`<i class="cash">Tagged cash</i>`);
+        else if(f.x) tags.push(`<i class="cash">${money(f.x)} estimated cash${f.xb==="proj" ? ", from project share" : ", from description"}</i>`);
+        if(f.pt) tags.push(`<i>Passed on from another donor</i>`);
+        tags.push(`<span>FTS flow ${f.i}</span>`);
+        return `<li><div class="top"><span>${day(f.d)}</span><b>${money(v)}${v!==f.a ? " <small>of "+money(f.a)+"</small>" : ""}</b></div>${f.ds ? `<div class="ds">${esc(f.ds)}${f.ds.length>=170?"…":""}</div>` : ""}${f.p!=null ? `<div class="ds" style="color:var(--muted)">${esc(d.projects[f.p].name)}</div>` : ""}<div class="tags">${tags.join("")}</div></li>`; }).join("") + `</ul>` + (fl.length>120 ? `<p class="note">${fl.length-120} more flows not shown.</p>` : "");
+  }
+  $("panel").innerHTML = h;
+}
+function panelNode(n){
+  const m=V.meta; let h = back;
+  if(n.sub){
+    const who = n.ins.map(e=>e.s).sort((a,b)=>b.in-a.in);
+    h += `<h2>${esc(n.label.split(",")[0])}, sub-granted</h2><div class="kind"><span class="ring"></span>Sub-grants from ${n.from} partners of the pooled fund</div>
+      <div class="figs" style="grid-template-columns:1fr 1fr"><div><b>${money(n.v)}</b><span>Sub-granted in ${state.year}</span></div><div><b>${pct(n.v/m.alloc)}</b><span>Of pooled fund allocations</span></div></div>
+      <p class="lede">The fund publishes sub-grants by partner type only. The dashed lines show which partners could have passed this money on, not who gave how much to whom.</p>
+      <h3>Possible sources (${who.length})</h3><ul class="rows">` + who.map(o=>`<li><button data-id="${o.id}">${dot(o)}<span class="nm">${esc(o.label)}</span><span class="amt">${money(o.in)}</span></button></li>`).join("") + `</ul>
+      <p class="note">Amounts beside each partner are their total receipts, for scale.</p>`;
+  } else {
+    const kept = n.in - n.out, donor = n.in===0;
+    h += `<h2>${esc(n.name)}</h2><div class="kind">${dot(n)}${CATS[n.cat]}${n.iati ? ", named in IATI" : ""}</div>`;
+    h += donor
+      ? `<div class="figs" style="grid-template-columns:1fr 1fr"><div><b>${money(n.out)}</b><span>Given</span></div><div><b>${n.outs.length}</b><span>Recipient${n.outs.length>1?"s":""}</span></div></div>`
+      : `<div class="figs"><div><b>${money(n.in)}</b><span>Received</span></div><div><b>${money(n.out)}</b><span>Passed on</span></div><div><b>${money(kept)}</b><span>${kept<0 ? "Out exceeds in" : n.cat==="fund" ? "Not yet allocated" : "Kept"}</span></div></div>`;
+    if(n.iati) h += `<p class="lede">Not an FTS record. This partner is named in an agency’s IATI data, which reports spending and can include development money.</p>`;
+    if(n.id===m.fund && plain()) h += `<p class="lede">${m.direct_nngo ? pct(m.direct_nngo/m.alloc)+" of" : "None of the"} ${money(m.alloc)} allocated went straight to national NGOs. ${pct(m.sub_nat/m.alloc)} reached national NGOs as sub-grants.</p>`;
+    if(kept<0 && !donor) h += `<p class="note" style="margin:-6px 0 12px">Passing on more than it received usually means carry-over from earlier years, income not reported to FTS${n.outs.some(e=>e.i) ? ", or IATI spending that FTS funding does not cover" : ""}.</p>`;
+    if(n.outs.some(e=>e.i) && kept>=0) h += `<p class="note" style="margin:-6px 0 12px">Passed on includes partner spending this agency reports to IATI, which can draw on money FTS does not record. Treat “kept” as rough.</p>`;
+    h += rowList("Gives to", n.outs, "t") + rowList("Receives from", n.ins, "s");
+    if(n.sec.size && plain()){
+      const sec=[...n.sec].sort((a,b)=>b[1]-a[1]).slice(0,5), mx=sec[0][1];
+      h += `<h3>What the money received is for</h3>` + sec.map(([k,v]) => `<div class="secbar"><span>${esc(V.d.sectors[k])}</span><span>${money(v)}</span><i style="width:${Math.max(2, v/mx*100)}%"></i></div>`).join("");
+    }
+    if(n.self) h += `<p class="note">${money(n.self)} more is reported as flowing from this organisation to itself, typically its own funds. It is left off the map.</p>`;
+  }
+  $("panel").innerHTML = h;
+}
+function panelHome(){
+  const m=V.meta, est=state.mode==="est", cash=state.mode!=="all", real=V.nodes.filter(n=>!n.sub && !n.iati), fe=V.edges.filter(e=>!e.d && !e.i);
+  const shown = d3.sum(fe, e=>e.v), total = plain() ? m.incoming : shown, sec = state.sector ? ` for ${esc(state.sector)}` : "";
+  const donor = d3.greatest(real.filter(n=>n.in===0), n=>n.out), rec = d3.greatest(real.filter(n=>n.cat!=="fund"), n=>n.in-n.out);
+  const fund = m.fund && V.byId.get(m.fund), fundOn = fund && (fund.ins.length || fund.outs.length);
+  const basis = b => d3.sum(fe, e => d3.sum(e.flows, x => x.f.xb===b ? x.v : 0));
+  let h = `<h2>${est ? "Estimated cash and vouchers" : cash ? "Tagged cash and vouchers" : "All humanitarian funding"}, ${state.year}</h2>
+    <p class="lede">${money(total)} ${est ? "estimated as cash and voucher assistance" : cash ? "in flows tagged as cash and voucher assistance" : plain() ? "of new money reported for "+COUNTRY : "in flows"}${sec}${state.year===YEARS[YEARS.length-1] && YEARS.length>1 ? ", year to date" : ""}. ${real.length} organisations, ${fe.length} funding relationships.</p>`;
+  if(est){ const noProj=!basis("proj");
+    h += `<div class="figs"><div><b>${money(basis("tag"))}</b><span>Tagged as cash</span></div><div><b>${money(basis("proj"))}</b><span>From project cash shares</span></div><div><b>${money(basis("ml"))}</b><span>From flow descriptions</span></div></div>
+    <p class="lede">${noProj && !state.sector ? "No " + state.year + " flow is linked to a response plan project yet, so there is nothing to estimate from. This view equals the tagged amount." : "Each project’s planned cash share is applied to the money it received." + (state.sector ? "" : " " + money(m.est_inkind||0) + " that the method would count is left out because the flows are recorded as in-kind.")}</p>`; }
+  h += `<h3>Start following</h3><ul class="follow">`;
+  if(fundOn && plain()) h += `<li><button data-id="${m.fund}"><b>The pooled fund: ${money(m.alloc)} allocated</b><span>${m.direct_nngo ? pct(m.direct_nngo/m.alloc) : "Nothing"} direct to national NGOs, ${pct(m.sub_nat/m.alloc)} via sub-grants</span></button></li>`;
+  if(donor) h += `<li><button data-id="${donor.id}"><b>Largest donor: ${esc(donor.label)}</b><span>${money(donor.out)} to ${donor.outs.length} recipient${donor.outs.length>1?"s":""}</span></button></li>`;
+  if(rec) h += `<li><button data-id="${rec.id}"><b>Largest recipient: ${esc(rec.label)}</b><span>${money(rec.in)} from ${rec.ins.length} source${rec.ins.length>1?"s":""}${rec.out ? ", "+money(rec.out)+" passed on" : ""}</span></button></li>`;
+  if(plain()){ const ia=V.edges.filter(e=>e.i), pub=d3.greatest(d3.rollups(ia, v=>d3.sum(v,e=>e.v), e=>e.s.id), x=>x[1]);
+    if(pub){ const p=V.byId.get(pub[0]); h += `<li><button data-id="${p.id}"><b>${esc(p.label)} reports its partners in IATI</b><span>${money(pub[1])} to implementing partners</span></button></li>`; } }
+  if(!cash) h += `<li><button data-mode="cash"><b>Only ${money(m.ctp)} is tagged as cash</b><span>Switch to the tagged cash flows</span></button></li>`;
+  if(cash && !est && m.est > m.ctp*1.05) h += `<li><button data-mode="est"><b>${money(m.est)} once untagged cash is estimated</b><span>Switch to the estimated cash flows</span></button></li>`;
+  h += `</ul><h3>Reading the map</h3>
+    <p class="note" style="margin-top:0">Each bubble is an organisation. ${V.portrait ? "Money moves top to bottom" : "Money moves left to right"}: donors, then organisations that pass funding on, then those that keep it. Select a bubble to see its direct links in full colour. Fainter links are further up or down the chain, where FTS does not record whether the same money travelled on. Select a link to see every flow behind it.</p>
+    <div class="legend" style="margin-top:12px">` + Object.entries(CATS).map(([k,l]) => `<div><span class="dot" style="background:var(--${k})"></span>${l}</div>`).join("") + `<div><span class="ring"></span>Sub-grants, by type only</div><div><span class="solid"></span>Partner named in IATI</div></div>
+    <p class="note">Sources: OCHA Financial Tracking Service flows for ${COUNTRY}, the OCHA pooled fund data hub and IATI (via d-portal), pulled ${PULLED}. Flows are self-reported and not verified. Multi-year flows count in full. A flow covering several sectors is split evenly between them when you filter by sector.${est ? " Estimate follows the CALP CVA tracking pipeline rules, with in-kind flows excluded. Planned cash shares are applied to funding received, so this is not cash delivered." : cash ? " Cash tagging in FTS is sparse, so treat this as a floor." : ""}</p>`;
+  $("panel").innerHTML = h;
+}
+$("panel").addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  if(b.dataset.mode){ state.mode=b.dataset.mode; state.sel=null; controls(); build(true); return; }
+  if(b.dataset.key){ select(b.dataset.key); return; }
+  if("id" in b.dataset) select(b.dataset.id || null);
+});
+$("q").addEventListener("change", e => {
+  const v=e.target.value.trim().toLowerCase(); if(!v) return;
+  const n = V.nodes.find(n=>!n.sub && n.name.toLowerCase()===v) || V.nodes.find(n=>!n.sub && (n.name.toLowerCase().includes(v) || n.label.toLowerCase().includes(v)));
+  if(n){ select(n.id); e.target.value=""; e.target.blur(); } else { e.target.setCustomValidity("No organisation with that name in this view"); e.target.reportValidity(); e.target.setCustomValidity(""); }
+});
+function controls(){
+  seg("year", YEARS.map(y=>[y,y]), "year");
+  seg("mode", [["all","All funding"],["cash","Tagged cash"],["est","Estimated cash"]], "mode");
+  seg("metric", [["vol","Money"],["cnt","Number of flows"],["avg","Average flow"]], "metric");
+}
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt=setTimeout(()=>build(true), 180); });
+$("country").innerHTML = Object.entries(ALL).sort((a,b)=>a[1].country.localeCompare(b[1].country)).map(([k,v]) => `<option value="${k}"${k===state.iso?" selected":""}>${esc(v.country)}</option>`).join("");
+$("country").onchange = e => { setCountry(e.target.value); V=null; controls(); sectors(); build(true); };
+controls(); sectors(); build(true);
+</script>
+</body>
+</html>
