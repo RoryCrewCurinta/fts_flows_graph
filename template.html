@@ -320,11 +320,15 @@ function labels(hot, warm){
       T:{x:n.x-w/2, y:n.y-n.r-h-1, a:"middle", dx:0, dy:-n.r-4}};
     const order = (2*n.r>w-10 ? "C" : "") + (V.portrait ? "BTRL" : n.edge ? "RBT" : n.t===0 ? "LTBR" : "BRTL");
     let pick=null;
+    // a highlighted bubble only has to avoid other highlighted bubbles: the rest are faded out
+    const isHot = hot && hot.has(n.id), block = isHot ? all.filter(c=>hot.has(c.id)) : all;
     for(const k of order){ const o={...opt[k], w, h};
       if(placed.some(p=>hitsRect(o,p))) continue;
-      if(!o.inside && all.some(c=>c!==n && c.r>=4.5 && hitsCircle(o,c))) continue;
-      if(o.inside && all.some(c=>c!==n && c.r<n.r && hitsCircle(o,c))) continue;
+      if(!o.inside && block.some(c=>c!==n && c.r>=4.5 && hitsCircle(o,c))) continue;
+      if(o.inside && block.some(c=>c!==n && c.r<n.r && hitsCircle(o,c))) continue;
       pick=o; break; }
+    // still nowhere to go: sit over a neighbouring bubble rather than vanish, as long as no label is covered
+    if(!pick && isHot) for(const k of order.replace("C","")){ const o={...opt[k], w, h}; if(!placed.some(p=>hitsRect(o,p))){ pick=o; break; } }
     let text=n.label;
     if(!pick && n.r>=11 && /\s/.test(n.label) && !n.sub){
       const ab=n.label.split(/[\s,()\/-]+/).filter(s=>/^[A-Za-zÀ-ÿ]/.test(s) && !/^(of|the|and|for|de|du|la|le|pour)$/i.test(s)).map(s=>s[0].toUpperCase()).join(""), aw=ab.length*7+6;
