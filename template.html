@@ -55,11 +55,14 @@ svg:active{cursor:grabbing}
 @media (prefers-reduced-motion:reduce){.flow{animation:none}}
 .node circle{stroke:var(--bg); stroke-width:1.5; cursor:pointer}
 .node.sub circle{fill-opacity:.32; stroke-width:1.5; stroke-dasharray:3 3}
-.node text{font-size:11px; font-weight:600; fill:var(--ink); paint-order:stroke; stroke:var(--bg); stroke-width:3.5px; stroke-linejoin:round; pointer-events:none}
+.lab{font-size:11px; font-weight:600; fill:var(--ink); paint-order:stroke; stroke:var(--bg); stroke-width:3.5px; stroke-linejoin:round; pointer-events:none}
 .dim .edge{opacity:.035}
 .dim .edge.hot{opacity:.75}
 .dim .node{opacity:.13}
 .dim .node.hot{opacity:1}
+.dim .lab{opacity:.12}
+.dim .lab.warm{opacity:.5}
+.dim .lab.hot{opacity:1}
 .node.sel circle{stroke:var(--ink); stroke-width:2.5; stroke-dasharray:none}
 
 .tip{position:absolute; pointer-events:none; background:var(--ink); color:var(--bg); padding:6px 10px; border-radius:6px; font-size:12.5px; max-width:260px; transform:translate(-50%,-135%); display:none; z-index:3}
@@ -138,7 +141,7 @@ select{font:inherit; color:inherit; border:1px solid var(--line); background:var
   </header>
   <div class="main">
     <div class="stage" id="stage">
-      <svg id="svg" role="img" aria-label="Network of funding flows between organisations"><g id="vp"><g id="edges"></g><g id="flows"></g><g id="hits"></g><g id="nodes"></g></g></svg>
+      <svg id="svg" role="img" aria-label="Network of funding flows between organisations"><g id="vp"><g id="edges"></g><g id="flows"></g><g id="hits"></g><g id="nodes"></g><g id="labels"></g></g></svg>
       <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit to screen">⤢</button></div>
       <div class="axis" id="axis"><span>Donors</span><span>Pass money on</span><span>Keep what they receive</span></div>
       <div class="tip" id="tip"></div>
@@ -150,11 +153,39 @@ select{font:inherit; color:inherit; border:1px solid var(--line); background:var
 <script>
 const ALL = __DATA__, PULLED = "__PULLED__";
 let DATA, COUNTRY, YEARS, CATS;
-const state = {iso:"__FIRST__", year:null, mode:"all", metric:"vol", sector:"", sel:null};
+function combine(){
+  const isos=Object.keys(ALL), years={};
+  for(const iso of isos) for(const [y,d] of Object.entries(ALL[iso].years)){
+    const o = years[y] || (years[y]={nodes:new Map(), flows:[], seen:new Map(), sectors:[], six:new Map(), projects:[], dash:new Map(), iati:new Map(), meta:{incoming:0, ctp:0, est:0, est_inkind:0, alloc:0, direct_nngo:0, sub_nat:0, sub_tot:0, funds:{}}});
+    for(const n of d.nodes){
+      const p=o.nodes.get(n.id);
+      if(!p) o.nodes.set(n.id, {...n, label: n.id.startsWith("iati-other-") ? n.label.replace(/^\d+ other/, "Other") : n.label, name: n.id.startsWith("iati-other-") ? n.name.replace(/^\d+ other partners/, "Other partners") : n.name});
+      else { if(n.sub) p.v+=n.v; if(n.cat==="hostgov") p.cat="hostgov"; p.self=(p.self||0)+(n.self||0); }
+    }
+    const pOff=o.projects.length; o.projects.push(...d.projects);
+    for(const f of d.flows){
+      if(o.seen.has(f.i)){ o.meta.incoming-=f.a; continue; }
+      o.seen.set(f.i,1);
+      const k=f.k.map(i => { const s=d.sectors[i]; if(!o.six.has(s)){ o.six.set(s,o.sectors.length); o.sectors.push(s); } return o.six.get(s); });
+      o.flows.push({...f, k, p: f.p!=null ? f.p+pOff : undefined, iso});
+    }
+    for(const x of d.dash) o.dash.set(x.s+">"+x.t, x);
+    for(const x of d.iati){ const k=x.s+">"+x.t, p=o.iati.get(k); if(p){ p.a+=x.a; p.n+=x.n; } else o.iati.set(k,{...x}); }
+    const m=d.meta; for(const k of ["incoming","ctp","est","est_inkind","alloc","direct_nngo","sub_nat","sub_tot"]) o.meta[k]+=m[k]||0;
+    if(m.fund) o.meta.funds[m.fund]={alloc:m.alloc, direct_nngo:m.direct_nngo, sub_nat:m.sub_nat};
+  }
+  for(const y in years){ const o=years[y]; years[y]={nodes:[...o.nodes.values()], flows:o.flows, sectors:o.sectors, projects:o.projects, dash:[...o.dash.values()], iati:[...o.iati.values()], meta:o.meta}; }
+  for(const iso of isos) for(const d of Object.values(ALL[iso].years)) if(d.meta.fund) d.meta.funds={[d.meta.fund]:{alloc:d.meta.alloc, direct_nngo:d.meta.direct_nngo, sub_nat:d.meta.sub_nat}};
+  return {country:"All countries", n:isos.length, years};
+}
+const ONE = Object.keys(ALL).length===1;
+if(!ONE) ALL.ALL = combine();
+const wanted = location.hash.slice(1).toUpperCase();
+const state = {iso: ALL[wanted] ? wanted : ONE ? Object.keys(ALL)[0] : "ALL", year:null, mode:"all", metric:"vol", sector:"", sel:null};
 function setCountry(iso){
   state.iso=iso; DATA=ALL[iso].years; COUNTRY=ALL[iso].country; YEARS=Object.keys(DATA).sort();
   if(!YEARS.includes(state.year)) state.year=YEARS[YEARS.length-1];
-  CATS = {gov:"Donor government", multi:"Multilateral donor", private:"Private donor or other", fund:"Pooled fund", un:"UN agency", ingo:"International NGO", rc:"Red Cross / Red Crescent", nngo:"National or local NGO", hostgov:"Government of "+COUNTRY};
+  CATS = {gov:"Donor government", multi:"Multilateral donor", private:"Private donor or other", fund:"Pooled fund", un:"UN agency", ingo:"International NGO", rc:"Red Cross / Red Crescent", nngo:"National or local NGO", hostgov: iso==="ALL" ? "Recipient-country government" : "Government of "+COUNTRY};
   state.sel=null;
 }
 setCountry(state.iso);
@@ -236,7 +267,7 @@ function build(relayout=true){
       .force("main", (portrait ? d3.forceY(n=>n.m) : d3.forceX(n=>n.m)).strength(.55))
       .force("cross", (portrait ? d3.forceX(W/2) : d3.forceY(H/2)).strength(.045))
       .force("link", d3.forceLink(V.edges.filter(e=>!e.d).map(e=>({source:e.s, target:e.t}))).strength(.012))
-      .force("collide", d3.forceCollide(n => n.r + (n.sub ? 13 : n.edge ? 7 : n.t===0 && !portrait ? 4.5 : n.r>=11 ? 9 : 3)).iterations(4)).stop();
+      .force("collide", d3.forceCollide(n => n.r + (n.sub ? 13 : n.edge ? 7 : n.t===0 && !portrait ? (n.r>=9 ? 8 : 4) : n.r>=11 ? 9 : 3)).iterations(4)).stop();
     for(let i=0;i<340;i++) sim.tick();
   } else {
     const old = new Map(prev.nodes.map(n=>[n.id,n]));
@@ -270,15 +301,41 @@ function draw(){
     .on("pointerleave", () => $("tip").style.display="none");
   g.selectAll("*").remove();
   g.append("circle").attr("r", n=>n.r).attr("fill", n=>`var(--${n.cat})`).attr("stroke", n => (n.sub||n.iati) ? `var(--${n.cat})` : null);
-  const side = n => V.portrait ? 0 : n.edge ? 1 : n.t===0 ? -1 : 0;
-  g.append("text").text(n => n.label)
-    .attr("text-anchor", n => ["end","middle","start"][side(n)+1])
-    .attr("x", n => side(n)*(n.r+5)).attr("y", n => side(n) ? 4 : n.r+12);
   labels();
   $("axis").style.display = V.portrait ? "none" : "flex";
 }
-function labels(hot){
-  d3.select("#nodes").selectAll("text").attr("display", n => (n.r>=11 || (n.sub && !V.portrait) || (hot && hot.size<=45 && hot.has(n.id))) ? null : "none");
+function labels(hot, warm){
+  const all=V.nodes, want = n => n.r>=7 || n.sub || (hot && hot.has(n.id)) || (warm && warm.has(n.id) && hot.size+warm.size<=60);
+  const rank = n => (hot && hot.has(n.id) ? 2e6 : warm && warm.has(n.id) ? 1e6 : 0) + n.r;
+  const list=all.filter(want).sort((a,b)=>rank(b)-rank(a)), placed=[], out=[];
+  const hitsRect = (a,b) => a.x<b.x+b.w && b.x<a.x+a.w && a.y<b.y+b.h && b.y<a.y+a.h;
+  const hitsCircle = (r,c) => { const cx=Math.max(r.x,Math.min(c.x,r.x+r.w)), cy=Math.max(r.y,Math.min(c.y,r.y+r.h)); return (cx-c.x)**2+(cy-c.y)**2 < (c.r+1)**2; };
+  for(const n of list){
+    const w=n.label.length*6.3+6, h=13, g=4;
+    const opt = {
+      C:{x:n.x-w/2, y:n.y-h/2, a:"middle", dx:0, dy:4, inside:true},
+      L:{x:n.x-n.r-g-w, y:n.y-h/2, a:"end", dx:-n.r-g, dy:4},
+      R:{x:n.x+n.r+g, y:n.y-h/2, a:"start", dx:n.r+g, dy:4},
+      B:{x:n.x-w/2, y:n.y+n.r+1, a:"middle", dx:0, dy:n.r+12},
+      T:{x:n.x-w/2, y:n.y-n.r-h-1, a:"middle", dx:0, dy:-n.r-4}};
+    const order = (2*n.r>w-10 ? "C" : "") + (V.portrait ? "BTRL" : n.edge ? "RBT" : n.t===0 ? "LTBR" : "BRTL");
+    let pick=null;
+    for(const k of order){ const o={...opt[k], w, h};
+      if(placed.some(p=>hitsRect(o,p))) continue;
+      if(!o.inside && all.some(c=>c!==n && c.r>=4.5 && hitsCircle(o,c))) continue;
+      if(o.inside && all.some(c=>c!==n && c.r<n.r && hitsCircle(o,c))) continue;
+      pick=o; break; }
+    let text=n.label;
+    if(!pick && n.r>=11 && /\s/.test(n.label) && !n.sub){
+      const ab=n.label.split(/[\s,()\/-]+/).filter(s=>/^[A-Za-zÀ-ÿ]/.test(s) && !/^(of|the|and|for|de|du|la|le|pour)$/i.test(s)).map(s=>s[0].toUpperCase()).join(""), aw=ab.length*7+6;
+      const o={x:n.x-aw/2, y:n.y-h/2, a:"middle", dx:0, dy:4, inside:true, w:aw, h};
+      if(ab.length>=2 && 2*n.r>aw-4 && !placed.some(p=>hitsRect(o,p))){ pick=o; text=ab; }
+    }
+    if(!pick && hot && n.id===state.sel){ const k=order[0]; pick={...opt[k], w, h}; }
+    if(pick){ placed.push(pick); out.push({n, text, ...pick}); }
+  }
+  d3.select("#labels").selectAll("text").data(out, d=>d.n.id).join("text").attr("class", d => "lab"+(hot && hot.has(d.n.id) ? " hot" : warm && warm.has(d.n.id) ? " warm" : ""))
+    .attr("x", d=>d.n.x+d.dx).attr("y", d=>d.n.y+d.dy).attr("text-anchor", d=>d.a).text(d=>d.text);
 }
 function tip(html, e){
   if(e.pointerType==="touch") return;
@@ -310,6 +367,7 @@ function select(key, quiet){
   const root = d3.select("#vp"); d3.select("#flows").selectAll("path").remove();
   d3.selectAll(".node").classed("hot warm sel", false); d3.selectAll(".edge").classed("hot warm", false);
   if(!key){ root.classed("dim", false); labels(); panelHome(); return; }
+  let warmN=new Set();
   root.classed("dim", true);
   let hotE, lab;
   if(V.byKey.has(key)){
@@ -318,14 +376,14 @@ function select(key, quiet){
     d3.selectAll(".edge").classed("hot", x=>x===e);
     panelEdge(e);
   } else {
-    const R=reach(key); hotE=R.direct; lab=new Set([...R.near, ...R.far]);
+    const R=reach(key); hotE=R.direct; lab=R.near; warmN=R.far;
     d3.selectAll(".node").classed("hot", n=>R.near.has(n.id)).classed("warm", n=>R.far.has(n.id)).classed("sel", n=>n.id===key);
     d3.selectAll(".edge").classed("hot", e=>R.direct.has(e)).classed("warm", e=>R.warm.has(e));
     panelNode(V.byId.get(key));
   }
   d3.select("#flows").selectAll("path").data([...hotE].filter(e=>!e.d && e.w>=1.6)).join("path")
     .attr("class","flow").attr("d", path).attr("stroke-width", e=>Math.max(1.4, Math.min(4, e.w*.35)));
-  labels(lab);
+  labels(lab, warmN);
   if(!quiet && !window.matchMedia("(max-width:860px)").matches) $("panel").scrollTop=0;
 }
 
@@ -379,7 +437,8 @@ function panelNode(n){
       ? `<div class="figs" style="grid-template-columns:1fr 1fr"><div><b>${money(n.out)}</b><span>Given</span></div><div><b>${n.outs.length}</b><span>Recipient${n.outs.length>1?"s":""}</span></div></div>`
       : `<div class="figs"><div><b>${money(n.in)}</b><span>Received</span></div><div><b>${money(n.out)}</b><span>Passed on</span></div><div><b>${money(kept)}</b><span>${kept<0 ? "Out exceeds in" : n.cat==="fund" ? "Not yet allocated" : "Kept"}</span></div></div>`;
     if(n.iati) h += `<p class="lede">Not an FTS record. This partner is named in an agency’s IATI data, which reports spending and can include development money.</p>`;
-    if(n.id===m.fund && plain()) h += `<p class="lede">${m.direct_nngo ? pct(m.direct_nngo/m.alloc)+" of" : "None of the"} ${money(m.alloc)} allocated went straight to national NGOs. ${pct(m.sub_nat/m.alloc)} reached national NGOs as sub-grants.</p>`;
+    const fm = m.funds && m.funds[n.id];
+    if(fm && plain()) h += `<p class="lede">${fm.direct_nngo ? pct(fm.direct_nngo/fm.alloc)+" of" : "None of the"} ${money(fm.alloc)} allocated went straight to national NGOs. ${pct(fm.sub_nat/fm.alloc)} reached national NGOs as sub-grants.</p>`;
     if(kept<0 && !donor) h += `<p class="note" style="margin:-6px 0 12px">Passing on more than it received usually means carry-over from earlier years, income not reported to FTS${n.outs.some(e=>e.i) ? ", or IATI spending that FTS funding does not cover" : ""}.</p>`;
     if(n.outs.some(e=>e.i) && kept>=0) h += `<p class="note" style="margin:-6px 0 12px">Passed on includes partner spending this agency reports to IATI, which can draw on money FTS does not record. Treat “kept” as rough.</p>`;
     h += rowList("Gives to", n.outs, "t") + rowList("Receives from", n.ins, "s");
@@ -392,17 +451,19 @@ function panelNode(n){
   $("panel").innerHTML = h;
 }
 function panelHome(){
-  const m=V.meta, est=state.mode==="est", cash=state.mode!=="all", real=V.nodes.filter(n=>!n.sub && !n.iati), fe=V.edges.filter(e=>!e.d && !e.i);
+  const m=V.meta, isAll=state.iso==="ALL", est=state.mode==="est", cash=state.mode!=="all", real=V.nodes.filter(n=>!n.sub && !n.iati), fe=V.edges.filter(e=>!e.d && !e.i);
   const shown = d3.sum(fe, e=>e.v), total = plain() ? m.incoming : shown, sec = state.sector ? ` for ${esc(state.sector)}` : "";
   const donor = d3.greatest(real.filter(n=>n.in===0), n=>n.out), rec = d3.greatest(real.filter(n=>n.cat!=="fund"), n=>n.in-n.out);
   const fund = m.fund && V.byId.get(m.fund), fundOn = fund && (fund.ins.length || fund.outs.length);
   const basis = b => d3.sum(fe, e => d3.sum(e.flows, x => x.f.xb===b ? x.v : 0));
   let h = `<h2>${est ? "Estimated cash and vouchers" : cash ? "Tagged cash and vouchers" : "All humanitarian funding"}, ${state.year}</h2>
-    <p class="lede">${money(total)} ${est ? "estimated as cash and voucher assistance" : cash ? "in flows tagged as cash and voucher assistance" : plain() ? "of new money reported for "+COUNTRY : "in flows"}${sec}${state.year===YEARS[YEARS.length-1] && YEARS.length>1 ? ", year to date" : ""}. ${real.length} organisations, ${fe.length} funding relationships.</p>`;
+    <p class="lede">${money(total)} ${est ? "estimated as cash and voucher assistance" : cash ? "in flows tagged as cash and voucher assistance" : plain() ? "of new money reported "+(isAll ? "across "+ALL.ALL.n+" countries" : "for "+COUNTRY) : "in flows"}${sec}${state.year===YEARS[YEARS.length-1] && YEARS.length>1 ? ", year to date" : ""}. ${real.length} organisations, ${fe.length} funding relationships.</p>`;
   if(est){ const noProj=!basis("proj");
     h += `<div class="figs"><div><b>${money(basis("tag"))}</b><span>Tagged as cash</span></div><div><b>${money(basis("proj"))}</b><span>From project cash shares</span></div><div><b>${money(basis("ml"))}</b><span>From flow descriptions</span></div></div>
     <p class="lede">${noProj && !state.sector ? "No " + state.year + " flow is linked to a response plan project yet, so there is nothing to estimate from. This view equals the tagged amount." : "Each project’s planned cash share is applied to the money it received." + (state.sector ? "" : " " + money(m.est_inkind||0) + " that the method would count is left out because the flows are recorded as in-kind.")}</p>`; }
   h += `<h3>Start following</h3><ul class="follow">`;
+  if(isAll && plain() && m.alloc){ const big=d3.greatest(Object.entries(m.funds), x=>x[1].alloc);
+    h += `<li><button data-id="${big[0]}"><b>Pooled funds: ${money(m.alloc)} allocated</b><span>${pct(m.direct_nngo/m.alloc)} direct to national NGOs, ${pct(m.sub_nat/m.alloc)} via sub-grants, across ${Object.keys(m.funds).length} funds</span></button></li>`; }
   if(fundOn && plain()) h += `<li><button data-id="${m.fund}"><b>The pooled fund: ${money(m.alloc)} allocated</b><span>${m.direct_nngo ? pct(m.direct_nngo/m.alloc) : "Nothing"} direct to national NGOs, ${pct(m.sub_nat/m.alloc)} via sub-grants</span></button></li>`;
   if(donor) h += `<li><button data-id="${donor.id}"><b>Largest donor: ${esc(donor.label)}</b><span>${money(donor.out)} to ${donor.outs.length} recipient${donor.outs.length>1?"s":""}</span></button></li>`;
   if(rec) h += `<li><button data-id="${rec.id}"><b>Largest recipient: ${esc(rec.label)}</b><span>${money(rec.in)} from ${rec.ins.length} source${rec.ins.length>1?"s":""}${rec.out ? ", "+money(rec.out)+" passed on" : ""}</span></button></li>`;
@@ -413,7 +474,7 @@ function panelHome(){
   h += `</ul><h3>Reading the map</h3>
     <p class="note" style="margin-top:0">Each bubble is an organisation. ${V.portrait ? "Money moves top to bottom" : "Money moves left to right"}: donors, then organisations that pass funding on, then those that keep it. Select a bubble to see its direct links in full colour. Fainter links are further up or down the chain, where FTS does not record whether the same money travelled on. Select a link to see every flow behind it.</p>
     <div class="legend" style="margin-top:12px">` + Object.entries(CATS).map(([k,l]) => `<div><span class="dot" style="background:var(--${k})"></span>${l}</div>`).join("") + `<div><span class="ring"></span>Sub-grants, by type only</div><div><span class="solid"></span>Partner named in IATI</div></div>
-    <p class="note">Sources: OCHA Financial Tracking Service flows for ${COUNTRY}, the OCHA pooled fund data hub and IATI (via d-portal), pulled ${PULLED}. Flows are self-reported and not verified. Multi-year flows count in full. A flow covering several sectors is split evenly between them when you filter by sector.${est ? " Estimate follows the CALP CVA tracking pipeline rules, with in-kind flows excluded. Planned cash shares are applied to funding received, so this is not cash delivered." : cash ? " Cash tagging in FTS is sparse, so treat this as a floor." : ""}</p>`;
+    <p class="note">Sources: OCHA Financial Tracking Service flows for ${isAll ? "the countries listed" : COUNTRY}, the OCHA pooled fund data hub and IATI (via d-portal), pulled ${PULLED}. Flows are self-reported and not verified. Multi-year flows count in full.${isAll ? " A flow naming two of these countries is counted once." : ""} A flow covering several sectors is split evenly between them when you filter by sector.${est ? " Estimate follows the CALP CVA tracking pipeline rules, with in-kind flows excluded. Planned cash shares are applied to funding received, so this is not cash delivered." : cash ? " Cash tagging in FTS is sparse, so treat this as a floor." : ""}</p>`;
   $("panel").innerHTML = h;
 }
 $("panel").addEventListener("click", e => {
@@ -433,8 +494,8 @@ function controls(){
   seg("metric", [["vol","Money"],["cnt","Number of flows"],["avg","Average flow"]], "metric");
 }
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt=setTimeout(()=>build(true), 180); });
-$("country").innerHTML = Object.entries(ALL).sort((a,b)=>a[1].country.localeCompare(b[1].country)).map(([k,v]) => `<option value="${k}"${k===state.iso?" selected":""}>${esc(v.country)}</option>`).join("");
-$("country").onchange = e => { setCountry(e.target.value); V=null; controls(); sectors(); build(true); };
+$("country").innerHTML = Object.entries(ALL).sort((a,b)=>(a[0]==="ALL" ? -1 : b[0]==="ALL" ? 1 : a[1].country.localeCompare(b[1].country))).map(([k,v]) => `<option value="${k}"${k===state.iso?" selected":""}>${esc(v.country)}</option>`).join("");
+$("country").onchange = e => { setCountry(e.target.value); history.replaceState(null,"","#"+e.target.value); V=null; controls(); sectors(); build(true); };
 controls(); sectors(); build(true);
 </script>
 </body>
